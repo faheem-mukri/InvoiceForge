@@ -1,0 +1,268 @@
+
+INVOICEFORGE — SYSTEM DESIGN REFERENCE (PHASES 1–4)
+==================================================
+
+This document captures the complete design decisions made during
+Phase 1 to Phase 4. It is intended to:
+- Serve as a single source of truth
+- Help onboard collaborators
+- Help explain the system in interviews
+- Prevent re-design during implementation
+
+--------------------------------------------------
+PHASE 1 — DOMAIN MODELING
+--------------------------------------------------
+
+CORE ENTITIES
+-------------
+
+1. User
+- Authenticated account
+- Owns invoices
+- Can view and modify only their own data
+
+2. Guest
+- Anonymous, temporary user mode
+- Can generate invoices but nothing is persisted
+- No history, no updates, no recovery
+
+3. Invoice (Central Entity)
+- A document requesting payment
+- Exists before payment
+- Can exist without payment
+- Can be printed or emailed
+
+4. InvoiceItem
+- A single billable line
+- Explains why an invoice costs what it costs
+
+5. Payment (Concept)
+- Settles an invoice
+- Does not create invoices
+- Only updates invoice status
+
+6. PDF
+- Generated artifact
+- Not a source of truth
+- Can be regenerated
+
+--------------------------------------------------
+INVOICE TYPES
+-------------
+
+PRODUCT INVOICE
+- Used for physical goods
+- Printable and delivery-box friendly
+- Supports COD, bank transfer, or online payment
+- Manual payment updates are common
+
+SERVICE INVOICE
+- Used for services or work
+- Email-first
+- Online payment preferred
+- Automatic updates via Stripe webhook
+
+Both invoice types:
+- Share the same core structure
+- Differ only in workflow expectations
+
+--------------------------------------------------
+USER MODES
+----------
+
+GUEST MODE
+- Create invoice
+- Generate & download PDF
+- No persistence
+- No tracking
+- Fire-and-forget
+
+AUTHENTICATED MODE
+- Create and save invoices
+- View invoice history
+- Update invoice status
+- Receive automatic payment updates
+- Re-download PDFs
+
+--------------------------------------------------
+PAYMENT CONCEPTS
+----------------
+
+- Invoices exist independently of payments
+- Payments are settlement events
+- Manual payments (COD / bank transfer) require user confirmation
+- Online payments (Stripe) update invoices automatically
+- Invoices never poll payment status
+
+--------------------------------------------------
+PHASE 2 — INVOICE STATE MACHINE
+--------------------------------------------------
+
+ALLOWED STATES
+--------------
+- DRAFT
+- SENT
+- PAID
+- OVERDUE (optional)
+
+ALLOWED TRANSITIONS
+-------------------
+DRAFT   → SENT
+SENT    → PAID
+SENT    → OVERDUE
+OVERDUE → PAID
+
+FORBIDDEN TRANSITIONS
+---------------------
+PAID → SENT
+PAID → DRAFT
+OVERDUE → DRAFT
+
+STATE CHANGE TRIGGERS
+---------------------
+- User action (send invoice, mark paid)
+- Stripe webhook (online payment)
+- System time check (overdue)
+
+IMPORTANT RULE
+--------------
+Frontend never changes state directly.
+Backend validates and applies transitions.
+
+--------------------------------------------------
+PHASE 3 — DATA MODEL (POSTGRESQL)
+--------------------------------------------------
+
+TABLES
+------
+1. User
+2. Invoice
+3. InvoiceItem
+4. Payment
+5. AuditLog
+
+INVOICE TABLE — KEY FIELDS
+--------------------------
+- id (UUID)
+- userId (owner)
+- type (PRODUCT | SERVICE)
+- status (DRAFT | SENT | PAID | OVERDUE)
+- invoiceNumber (sequential per user)
+- clientName, clientEmail, clientAddress
+- currency
+- subtotal, taxAmount, discountAmount, totalAmount
+- paymentMethod
+- issuedAt, dueDate, paidAt
+- pdfUrl
+- createdAt, updatedAt
+
+INVOICEITEM TABLE
+-----------------
+- id
+- invoiceId
+- description
+- quantity
+- unitPrice (integer)
+- totalPrice (integer)
+- position
+
+PAYMENT TABLE
+-------------
+- id
+- invoiceId (unique)
+- method (COD | BANK_TRANSFER | ONLINE)
+- provider (MANUAL | STRIPE)
+- amount
+- currency
+- externalTransactionId (Stripe)
+- paidAt
+- createdAt
+
+AUDITLOG TABLE
+--------------
+- id
+- userId (nullable for system actions)
+- entityType (INVOICE | PAYMENT)
+- entityId
+- action
+- metadata (JSON)
+- createdAt
+
+IMPORTANT DATA RULES
+--------------------
+- No floats for money
+- Invoices are the source of truth
+- One payment per invoice
+- PDFs are not stored in DB
+
+--------------------------------------------------
+PHASE 4 — API CONTRACTS
+--------------------------------------------------
+
+AUTH APIS
+---------
+POST   /auth/register
+POST   /auth/login
+POST   /auth/refresh
+POST   /auth/logout
+
+GUEST INVOICE API
+-----------------
+POST /guest/invoices
+- Generates temporary invoice + PDF
+- No persistence
+- Rate limited
+
+AUTHENTICATED INVOICE APIS
+--------------------------
+POST   /invoices
+PUT    /invoices/:id
+POST   /invoices/:id/send
+GET    /invoices/:id
+GET    /invoices
+GET    /invoices/:id/pdf
+POST   /invoices/:id/mark-paid
+
+PAYMENT APIS
+------------
+POST /payments/stripe/checkout
+
+WEBHOOK API
+-----------
+POST /webhooks/stripe
+
+--------------------------------------------------
+ERROR & RESPONSE CONVENTIONS
+--------------------------------------------------
+
+SUCCESS RESPONSE
+----------------
+{
+  "success": true,
+  "data": { ... }
+}
+
+ERROR RESPONSE
+--------------
+{
+  "success": false,
+  "error": {
+    "code": "INVALID_STATE",
+    "message": "Only draft invoices can be edited"
+  }
+}
+
+STANDARD ERROR CODES
+--------------------
+VALIDATION_ERROR
+UNAUTHORIZED
+FORBIDDEN
+INVALID_STATE
+INVOICE_NOT_FOUND
+PAYMENT_ALREADY_EXISTS
+STRIPE_ERROR
+PDF_GENERATION_FAILED
+
+--------------------------------------------------
+END OF DESIGN REFERENCE
+--------------------------------------------------

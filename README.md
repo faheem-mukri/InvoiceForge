@@ -9,3 +9,10 @@ Invoice-first invoicing system with support for:
 
 This project is under active development.
 Architecture-first, backend-focused.
+
+Domain Concepts:
+- User
+- Guest
+- Invoice
+- Invoice Item
+- Payment
