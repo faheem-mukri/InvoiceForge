@@ -1,0 +1,79 @@
+const pool = require('../db');
+
+async function createInvoice(userId, payload) {
+    const {
+        type,
+        client,
+        currency,
+        items,
+    } = payload;
+
+    //generate simple invoice number (to be improved later)
+    const invoiceNumber = `INV-${Date.now()}`;
+
+    let subtotal = 0;
+    for (const item of items || []) {
+        subtotal += item.quantity * item.unitPrice;
+    }
+
+    const taxAmount = 0;
+    const discountAmount = 0;
+    const totalAmount = subtotal + taxAmount - discountAmount;
+
+    const invoiceResult = await pool.query(
+        `
+    INSERT INTO invoices (
+      user_id, type, status, invoice_number,
+      client_name, client_email, client_address,
+      currency, subtotal, tax_amount, discount_amount, total_amount
+    )
+    VALUES (
+      $1, $2, 'DRAFT', $3,
+      $4, $5, $6,
+      $7, $8, $9, $10, $11
+    )
+    RETURNING id
+    `,
+    [
+      userId,
+      type,
+      invoiceNumber,
+      client.name,
+      client.email || null,
+      client.address || null,
+      currency,
+      subtotal,
+      taxAmount,
+      discountAmount,
+      totalAmount,
+    ]
+  );
+
+  const invoiceId = invoiceResult.rows[0].id;
+
+  for ( let i = 0; i < (items || []).length; i++ ) {
+    const item = items[i];
+    await pool.query(
+        `
+      INSERT INTO invoice_items (
+        invoice_id, description, quantity, unit_price, total_price, position
+      )
+      VALUES ($1, $2, $3, $4, $5, $6)
+      `,
+      [
+        invoiceId,
+        item.description,
+        item.quantity,
+        item.unitPrice,
+        item.quantity * item.unitPrice,
+        i + 1,
+      ]
+    );
+    }
+
+    return { invoiceId };
+}
+
+module.exports = {
+    createInvoice,
+};

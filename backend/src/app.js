@@ -1,7 +1,7 @@
 const express = require("express");
-require('dotenv').config();
 const authRoutes = require("./routes/auth.routes");
 const requireAuth = require("./middleware/requireAuth");
+const invoiceRoutes = require("./routes/invoice.routes");
 
 const app = express();
 app.use(express.json());
@@ -14,5 +14,6 @@ app.get("/me", requireAuth, (req, res) => {
         data: { userId: req.user.id },
     });
 });
+app.use("/invoices", invoiceRoutes);
 
 module.exports = app;
