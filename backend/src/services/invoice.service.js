@@ -108,7 +108,43 @@ async function sendInvoice(userId, invoiceId) {
   );
 }
 
+async function getInvoiceForPdf(userId, invoiceId) {
+    const invoiceResult = await pool.query(
+    `
+    SELECT *
+    FROM invoices
+    WHERE id = $1 AND user_id = $2
+    `,
+    [invoiceId, userId]
+  );
+
+  if (invoiceResult.rows.length === 0) {
+    throw new Error('INVOICE_NOT_FOUND');
+  }
+
+  if (invoiceResult.rows[0].status !== 'SENT') {
+    throw new Error('INVOICE_NOT_SENT');
+  }
+
+  const itemsResult = await pool.query(
+    `
+    SELECT *
+    FROM invoice_items
+    WHERE invoice_id = $1
+    ORDER BY position ASC
+    `,
+    [invoiceId]
+  );
+
+  return {
+    invoice: invoiceResult.rows[0],
+    items: itemsResult.rows,
+  };
+}
+
+
 module.exports = {
     createInvoice,
     sendInvoice,
+    getInvoiceForPdf,
 };
