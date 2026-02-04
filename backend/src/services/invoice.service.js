@@ -74,6 +74,41 @@ async function createInvoice(userId, payload) {
     return { invoiceId };
 }
 
+async function sendInvoice(userId, invoiceId) {
+    // Placeholder for sending invoice logic
+    // This could involve updating the invoice status and sending an email
+
+    // ensure invoice belongs to user & is DRAFT
+    const result = await pool.query(
+       `
+    SELECT status
+    FROM invoices
+    WHERE id = $1 AND user_id = $2
+    `,
+    [invoiceId, userId]
+  );
+
+  if (result.rows.length === 0) {
+  throw new Error('INVOICE_NOT_FOUND');
+  }
+
+  if (result.rows[0].status !== 'DRAFT') {
+    throw new Error('INVALID_INVOICE_STATE');
+  }
+
+  await pool.query(
+    `
+    UPDATE invoices
+    SET status = 'SENT',
+        issued_at = now(),
+        updated_at = now()
+    WHERE id = $1
+    `,
+    [invoiceId]
+  );
+}
+
 module.exports = {
     createInvoice,
+    sendInvoice,
 };
