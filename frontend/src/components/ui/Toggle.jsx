@@ -1,0 +1,29 @@
+'use client';
+
+// Accessible on/off switch.
+export default function Toggle({ checked, onChange, label, description, disabled = false }) {
+  return (
+    <label className={`flex items-center justify-between gap-4 ${disabled ? 'opacity-60' : 'cursor-pointer'}`}>
+      <span>
+        {label && <span className="block text-sm font-medium text-gray-900 dark:text-white">{label}</span>}
+        {description && <span className="block text-xs text-gray-500 dark:text-gray-400">{description}</span>}
+      </span>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() => !disabled && onChange(!checked)}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors ${
+          checked ? 'bg-blue-600' : 'bg-gray-300 dark:bg-slate-700'
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition-transform ${
+            checked ? 'translate-x-5' : 'translate-x-0.5'
+          }`}
+        />
+      </button>
+    </label>
+  );
+}
