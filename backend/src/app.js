@@ -26,10 +26,31 @@ if (process.env.NODE_ENV === "production") {
 // small inline-styled redirect pages; the Next.js frontend manages its own CSP.
 app.use(helmet({ contentSecurityPolicy: false, crossOriginResourcePolicy: false }));
 
+// Allowed browser origins for CORS. FRONTEND_URL may be a single origin or a
+// comma-separated list (e.g. production + a custom domain). Vercel preview
+// deployments (*.vercel.app) are allowed too so branch previews work.
+const allowedOrigins = (process.env.FRONTEND_URL || "http://localhost:3000")
+  .split(",")
+  .map((o) => o.trim().replace(/\/$/, ""))
+  .filter(Boolean);
+
+function isAllowedOrigin(origin) {
+  // Non-browser clients (curl, server-to-server) send no Origin header.
+  if (!origin) return true;
+  const normalized = origin.replace(/\/$/, "");
+  if (allowedOrigins.includes(normalized)) return true;
+  // Allow Vercel preview URLs for this project.
+  if (/^https:\/\/[a-z0-9-]+\.vercel\.app$/i.test(normalized)) return true;
+  return false;
+}
+
 // Allow the frontend origin to call this API from the browser with cookies.
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+    origin(origin, callback) {
+      if (isAllowedOrigin(origin)) return callback(null, true);
+      return callback(new Error(`Origin not allowed by CORS: ${origin}`));
+    },
     credentials: true,
   })
 );
