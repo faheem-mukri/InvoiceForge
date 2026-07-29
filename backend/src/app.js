@@ -7,6 +7,7 @@ const userRoutes = require("./routes/user.routes");
 const businessRoutes = require("./routes/business.routes");
 const paymentSettingsRoutes = require("./routes/paymentSettings.routes");
 const clientRoutes = require("./routes/client.routes");
+const productRoutes = require("./routes/product.routes");
 const invoiceRoutes = require("./routes/invoice.routes");
 const paymentRoutes = require("./routes/payment.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
@@ -61,7 +62,9 @@ app.use(cookieParser());
 // so they are mounted BEFORE express.json() consumes/parses the body.
 app.use("/webhooks", webhookRoutes);
 
-app.use(express.json());
+// Limit raised from the 100kb default so base64 business logos fit (the logo
+// itself is capped at 512 KB in business.service.js).
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/health", (_, res) => res.json({ status: "OK" }));
 
@@ -70,6 +73,7 @@ app.use("/users", userRoutes);
 app.use("/business", businessRoutes);
 app.use("/payment-settings", paymentSettingsRoutes);
 app.use("/clients", clientRoutes);
+app.use("/products", productRoutes);
 app.use("/invoices", invoiceRoutes);
 app.use("/payments", paymentRoutes);
 app.use("/dashboard", dashboardRoutes);

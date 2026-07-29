@@ -31,6 +31,14 @@ export default function InvoicePreview({
       {/* Header */}
       <div className="flex items-start justify-between gap-6">
         <div className="min-w-0">
+          {business && business.logo_data && (
+            // eslint-disable-next-line @next/next/no-img-element -- base64 data URL from our own API, not an optimizable remote asset
+            <img
+              src={`data:${business.logo_mime || 'image/png'};base64,${business.logo_data}`}
+              alt={business.business_name ? `${business.business_name} logo` : 'Business logo'}
+              className="max-h-14 max-w-[180px] object-contain mb-2"
+            />
+          )}
           {business && business.business_name ? (
             <>
               <p className="text-lg font-bold text-gray-900">{business.business_name}</p>

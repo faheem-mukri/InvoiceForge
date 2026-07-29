@@ -16,11 +16,23 @@ async function getBusiness(req, res) {
   }
 }
 
+const LOGO_ERRORS = {
+  INVALID_LOGO_TYPE: "Logo must be a PNG or JPEG image.",
+  INVALID_LOGO_DATA: "The logo image could not be read. Please try another file.",
+  LOGO_TOO_LARGE: "Logo must be smaller than 512 KB.",
+};
+
 async function updateBusiness(req, res) {
   try {
     const profile = await updateBusinessProfile(req.user.id, req.body);
     return res.json({ success: true, data: profile });
   } catch (err) {
+    if (LOGO_ERRORS[err.message]) {
+      return res.status(422).json({
+        success: false,
+        error: { code: err.message, message: LOGO_ERRORS[err.message] },
+      });
+    }
     console.error(err);
     return res.status(500).json({
       success: false,

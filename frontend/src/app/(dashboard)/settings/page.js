@@ -122,6 +122,59 @@ export default function SettingsPage() {
     }
   }
 
+  // Logo is stored base64 in the DB (hosts like Render have an ephemeral disk,
+  // so on-disk uploads would vanish on redeploy). Saved immediately on pick.
+  const MAX_LOGO_BYTES = 512 * 1024;
+
+  async function handleLogoFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = ''; // allow re-picking the same file
+    if (!file) return;
+
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      toast.error('Logo must be a PNG or JPEG image.');
+      return;
+    }
+    if (file.size > MAX_LOGO_BYTES) {
+      toast.error('Logo must be smaller than 512 KB.');
+      return;
+    }
+
+    setSaving('logo');
+    try {
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(String(reader.result).split(',')[1]);
+        reader.onerror = () => reject(new Error('Could not read that file.'));
+        reader.readAsDataURL(file);
+      });
+
+      const res = await businessApi.update(token, {
+        logo_data: base64,
+        logo_mime: file.type,
+      });
+      setBusiness(res.data);
+      toast.success('Logo updated.');
+    } catch (err) {
+      toast.error(err.message || 'Could not upload logo.');
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  async function removeLogo() {
+    setSaving('logo');
+    try {
+      const res = await businessApi.update(token, { logo_data: null, logo_mime: null });
+      setBusiness(res.data);
+      toast.success('Logo removed.');
+    } catch (err) {
+      toast.error(err.message || 'Could not remove logo.');
+    } finally {
+      setSaving(null);
+    }
+  }
+
   async function saveBusiness(e) {
     e.preventDefault();
     setSaving('business');
@@ -359,6 +412,49 @@ export default function SettingsPage() {
                   <Input label="Tax ID" value={business.tax_id || ''} onChange={(e) => setB('tax_id', e.target.value)} />
                 </div>
                 <Textarea label="Business Address" value={business.business_address || ''} onChange={(e) => setB('business_address', e.target.value)} rows={2} />
+
+                {/* Logo — appears on invoices and PDFs */}
+                <div className="space-y-2 border-t border-gray-100 dark:border-slate-800 pt-4">
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                    Business Logo
+                  </label>
+                  <div className="flex items-start gap-4">
+                    <div className="w-28 h-20 shrink-0 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+                      {business.logo_data ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- base64 data URL from our own API, not an optimizable remote asset
+                        <img
+                          src={`data:${business.logo_mime || 'image/png'};base64,${business.logo_data}`}
+                          alt="Business logo preview"
+                          className="max-w-full max-h-full object-contain"
+                        />
+                      ) : (
+                        <span className="text-xs text-gray-400">No logo</span>
+                      )}
+                    </div>
+                    <div className="space-y-2">
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg"
+                        onChange={handleLogoFile}
+                        disabled={saving === 'logo'}
+                        className="block text-sm text-gray-600 dark:text-gray-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 dark:file:bg-blue-900/30 dark:file:text-blue-300 hover:file:bg-blue-100 file:cursor-pointer"
+                      />
+                      <p className="text-xs text-gray-400 dark:text-gray-500">
+                        PNG or JPEG, up to 512 KB. Shown on your invoices and PDFs.
+                      </p>
+                      {business.logo_data && (
+                        <button
+                          type="button"
+                          onClick={removeLogo}
+                          disabled={saving === 'logo'}
+                          className="text-xs font-medium text-red-600 hover:text-red-700 dark:text-red-400"
+                        >
+                          Remove logo
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                </div>
                 <div className="flex justify-end">
                   <Button type="submit" disabled={saving === 'business'}>{saving === 'business' ? <Spinner size={16} /> : 'Save'}</Button>
                 </div>

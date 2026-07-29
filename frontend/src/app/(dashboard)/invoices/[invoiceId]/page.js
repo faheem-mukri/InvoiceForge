@@ -128,7 +128,14 @@ export default function InvoiceDetailPage() {
     try {
       const blob = await invoiceApi.pdf(token, invoiceId);
       const url = URL.createObjectURL(blob);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      //Download names after the innvoice number instead of the blob UUID
+      const safeName = String(invoice?.invoice_number || 'invoice').replace(/[^\w.-]+/g, '-');
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${safeName}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     } catch (err) {
       toast.error(err.message || 'Could not generate PDF.');

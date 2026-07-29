@@ -1,13 +1,31 @@
 /**
- * Email delivery. Uses SMTP when configured (SMTP_HOST/PORT/USER/PASS),
- * otherwise falls back to logging the message so the flows work in development
- * without a mail server.
+ * Email delivery.
+ *
+ * IMPORTANT: cloud hosts (Render free tier, Railway non-Pro, etc.) block
+ * outbound SMTP ports (25/465/587), so SMTP times out in production. Prefer an
+ * HTTP-API provider (port 443), which is never blocked.
+ *
+ * Provider is auto-selected by which env var is present, in priority order:
+ *   1. BREVO_API_KEY   → Brevo HTTP API (free, single-sender verification, no
+ *                        domain needed, sends to any recipient)
+ *   2. RESEND_API_KEY  → Resend HTTP API (needs a verified domain to email
+ *                        anyone other than your own account address)
+ *   3. SMTP_HOST       → SMTP via nodemailer (local dev / hosts that allow SMTP)
+ *   4. none            → log to console (dev fallback)
  */
 const nodemailer = require("nodemailer");
 
+const FROM = process.env.EMAIL_FROM || "InvoiceForge <no-reply@invoiceforge.local>";
+
+// Parse "Display Name <email@host>" (or a bare address) into parts.
+function parseFrom(value) {
+  const m = /^\s*(.*?)\s*<([^>]+)>\s*$/.exec(value || "");
+  if (m) return { name: m[1] || "InvoiceForge", email: m[2].trim() };
+  return { name: "InvoiceForge", email: (value || "").trim() };
+}
+
 let transporter = null;
 const smtpConfigured = Boolean(process.env.SMTP_HOST);
-
 if (smtpConfigured) {
   transporter = nodemailer.createTransport({
     host: process.env.SMTP_HOST,
@@ -17,10 +35,70 @@ if (smtpConfigured) {
       process.env.SMTP_USER && process.env.SMTP_PASS
         ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS }
         : undefined,
+    // Fail fast instead of hanging the request when the port is blocked.
+    connectionTimeout: 10000,
+    greetingTimeout: 10000,
+    socketTimeout: 15000,
   });
 }
 
-const FROM = process.env.EMAIL_FROM || "InvoiceForge <no-reply@invoiceforge.local>";
+const provider = process.env.BREVO_API_KEY
+  ? "brevo"
+  : process.env.RESEND_API_KEY
+  ? "resend"
+  : smtpConfigured
+  ? "smtp"
+  : "console";
+
+// attachments (caller format): [{ filename, content: Buffer, contentType }]
+async function sendViaBrevo({ to, subject, text, html, attachments }) {
+  const sender = parseFrom(FROM);
+  const body = {
+    sender,
+    to: [{ email: to }],
+    subject,
+    ...(html ? { htmlContent: html } : {}),
+    ...(text ? { textContent: text } : {}),
+    ...(attachments?.length
+      ? { attachment: attachments.map((a) => ({ name: a.filename, content: a.content.toString("base64") })) }
+      : {}),
+  };
+  const res = await fetch("https://api.brevo.com/v3/smtp/email", {
+    method: "POST",
+    headers: { "api-key": process.env.BREVO_API_KEY, "content-type": "application/json", accept: "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Brevo send failed (${res.status}): ${detail.slice(0, 300)}`);
+  }
+  return { sent: true };
+}
+
+async function sendViaResend({ to, subject, text, html, attachments }) {
+  const body = {
+    from: FROM,
+    to: [to],
+    subject,
+    ...(html ? { html } : {}),
+    ...(text ? { text } : {}),
+    ...(attachments?.length
+      ? { attachments: attachments.map((a) => ({ filename: a.filename, content: a.content.toString("base64") })) }
+      : {}),
+  };
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    throw new Error(`Resend send failed (${res.status}): ${detail.slice(0, 300)}`);
+  }
+  return { sent: true };
+}
 
 async function sendMail({ to, subject, text, html, attachments }) {
   if (!to) {
@@ -28,18 +106,22 @@ async function sendMail({ to, subject, text, html, attachments }) {
     return { sent: false, reason: "NO_RECIPIENT" };
   }
 
-  if (!transporter) {
-    console.log("──────── EMAIL (dev fallback, SMTP not configured) ────────");
-    console.log("To:", to);
-    console.log("Subject:", subject);
-    console.log(text || html);
-    if (attachments?.length) console.log(`Attachments: ${attachments.map((a) => a.filename).join(", ")}`);
-    console.log("───────────────────────────────────────────────────────────");
-    return { sent: false, reason: "SMTP_NOT_CONFIGURED" };
+  if (provider === "brevo") return sendViaBrevo({ to, subject, text, html, attachments });
+  if (provider === "resend") return sendViaResend({ to, subject, text, html, attachments });
+
+  if (provider === "smtp") {
+    await transporter.sendMail({ from: FROM, to, subject, text, html, attachments });
+    return { sent: true };
   }
 
-  await transporter.sendMail({ from: FROM, to, subject, text, html, attachments });
-  return { sent: true };
+  // console fallback (no provider configured)
+  console.log("──────── EMAIL (dev fallback, no provider configured) ────────");
+  console.log("To:", to);
+  console.log("Subject:", subject);
+  console.log(text || html);
+  if (attachments?.length) console.log(`Attachments: ${attachments.map((a) => a.filename).join(", ")}`);
+  console.log("───────────────────────────────────────────────────────────");
+  return { sent: false, reason: "EMAIL_NOT_CONFIGURED" };
 }
 
 function money(amountInCents, currency) {

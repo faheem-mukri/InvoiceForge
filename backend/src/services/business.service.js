@@ -1,4 +1,5 @@
 const pool = require("../db");
+const { validateImage } = require("../utils/imageValidate");
 
 // Returns the user's business profile, creating an empty one if missing.
 async function getBusinessProfile(userId) {
@@ -26,6 +27,8 @@ const UPDATABLE = [
   "business_phone",
   "business_address",
   "business_logo",
+  "logo_data",
+  "logo_mime",
   "website",
   "gst_number",
   "tax_id",
@@ -34,9 +37,48 @@ const UPDATABLE = [
   "invoice_prefix",
 ];
 
+// Logos are stored as base64 in the DB (hosts like Render have an ephemeral
+// filesystem, so on-disk uploads would disappear on redeploy). Keep them small
+// so invoice/PDF payloads stay reasonable.
+// Only PNG and JPEG — PDFKit cannot embed WebP, so accepting it would produce
+// invoices with a missing logo.
+const ALLOWED_LOGO_MIME = ["image/png", "image/jpeg"];
+const MAX_LOGO_BYTES = 512 * 1024; // 512 KB decoded
+
+function validateLogo(data) {
+  if (data.logo_data === undefined) return;
+
+  // Explicit removal.
+  if (data.logo_data === null || data.logo_data === "") {
+    data.logo_data = null;
+    data.logo_mime = null;
+    return;
+  }
+
+  const mime = data.logo_mime;
+  if (!ALLOWED_LOGO_MIME.includes(mime)) throw new Error("INVALID_LOGO_TYPE");
+
+  // Accept either a raw base64 string or a full data URL.
+  const base64 = String(data.logo_data).replace(/^data:[^;]+;base64,/, "").trim();
+  if (!/^[A-Za-z0-9+/\r\n]+={0,2}$/.test(base64)) throw new Error("INVALID_LOGO_DATA");
+
+  const buf = Buffer.from(base64, "base64");
+  if (buf.length === 0) throw new Error("INVALID_LOGO_DATA");
+  if (buf.length > MAX_LOGO_BYTES) throw new Error("LOGO_TOO_LARGE");
+
+  // Deep-validate now: a corrupt image would otherwise crash the process at
+  // PDF-render time (PDFKit's PNG decoder throws asynchronously).
+  const problem = validateImage(buf, mime);
+  if (problem) throw new Error(problem);
+
+  data.logo_data = buf.toString("base64");
+}
+
 async function updateBusinessProfile(userId, data) {
   // Ensure a row exists first.
   await getBusinessProfile(userId);
+
+  validateLogo(data);
 
   const sets = [];
   const values = [userId];

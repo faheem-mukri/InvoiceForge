@@ -129,9 +129,12 @@ export default function GuestInvoicePage() {
     try {
       const blob = await guestApi.createInvoice(payload);
       const url = URL.createObjectURL(blob);
+      // Guest invoices aren't saved and have no invoice number, so name the
+      // download after the client (falls back to "invoice").
+      const safeName = (clientName.trim() || 'invoice').replace(/[^a-zA-Z0-9]+/g, '-');
       const a = document.createElement('a');
       a.href = url;
-      a.download = 'invoice.pdf';
+      a.download = `invoice-${safeName}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();

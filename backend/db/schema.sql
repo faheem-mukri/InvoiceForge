@@ -293,3 +293,33 @@ CREATE TABLE IF NOT EXISTS password_resets (
   CONSTRAINT fk_password_reset_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_password_resets_token ON password_resets(token_hash);
+
+-- =====================================================================
+-- Product / service catalog
+-- Reusable line items so users don't retype the same products on every
+-- invoice. Prices are integers in the smallest currency unit (cents).
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS products (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  name VARCHAR(255) NOT NULL,
+  description TEXT,
+  sku VARCHAR(100),
+  type VARCHAR(20) DEFAULT 'SERVICE' CHECK (type IN ('SERVICE', 'PRODUCT')),
+  unit VARCHAR(50),
+  unit_price INTEGER NOT NULL DEFAULT 0 CHECK (unit_price >= 0),
+  currency VARCHAR(3) DEFAULT 'USD',
+  tax_rate NUMERIC(5, 2) DEFAULT 0 CHECK (tax_rate >= 0),
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMP DEFAULT now(),
+  updated_at TIMESTAMP DEFAULT now(),
+  deleted_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_user_id ON products(user_id);
+CREATE INDEX IF NOT EXISTS idx_products_user_active ON products(user_id, is_active);
+
+-- Business logo, stored in the database rather than on disk because hosts
+-- like Render have an ephemeral filesystem (uploads would vanish on redeploy).
+ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS logo_data TEXT;
+ALTER TABLE business_profiles ADD COLUMN IF NOT EXISTS logo_mime VARCHAR(50);

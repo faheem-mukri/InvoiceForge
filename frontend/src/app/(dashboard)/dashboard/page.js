@@ -104,14 +104,15 @@ export default function DashboardPage() {
         if (cancelled) return;
 
         const d = res.data;
-        const currency = d.recentInvoices?.[0]?.currency || 'USD';
 
         setStats({
           totalRevenue: d.revenue.totalBilled,
           paid: d.revenue.collected,
           pending: d.revenue.outstanding,
           overdue: d.revenue.overdue,
-          currency,
+          currency: d.revenue.currency || 'USD',
+          mixedCurrency: d.revenue.mixedCurrency,
+          approximate: d.revenue.approximate,
         });
 
         setInvoices(d.recentInvoices || []);
@@ -203,6 +204,13 @@ export default function DashboardPage() {
             variant="danger"
           />
         </div>
+      )}
+
+      {stats?.mixedCurrency && (
+        <p className="-mt-4 text-xs text-gray-400 dark:text-gray-500">
+          Totals are shown in {stats.currency}, converting invoices issued in other currencies
+          {stats.approximate ? ' (approximate rates)' : ' at current exchange rates'}.
+        </p>
       )}
 
       {/* Recent Invoices */}

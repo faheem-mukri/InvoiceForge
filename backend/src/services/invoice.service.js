@@ -707,7 +707,8 @@ async function getPublicInvoice(invoiceId) {
       [invoiceId]
     ),
     pool.query(
-      `SELECT business_name, business_email, business_phone, business_address, website, gst_number
+      `SELECT business_name, business_email, business_phone, business_address, website, gst_number,
+              logo_data, logo_mime
        FROM business_profiles WHERE user_id = $1`,
       [invoice.user_id]
     ),

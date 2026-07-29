@@ -62,7 +62,22 @@ function renderInvoiceDocument(doc, invoice, items, business) {
     doc.registerFont(FONT_HEAVY, FONT_BOLD);
     doc.font(FONT_BODY);
     // ===== HEADER =====
-    const topY = doc.y;
+    const headerTop = doc.y; // keep the "INVOICE" title pinned to the top
+    let topY = doc.y;
+
+    // Business logo (stored base64 in the DB). Rendered above the business
+    // details; failures are non-fatal so a bad image never breaks the invoice.
+    if (business && business.logo_data) {
+      try {
+        const buf = Buffer.from(business.logo_data, 'base64');
+        doc.image(buf, 50, topY, { fit: [140, 60], align: 'left' });
+        topY += 70;
+        doc.y = topY;
+      } catch (imgErr) {
+        console.error('Invoice logo could not be rendered:', imgErr.message);
+      }
+    }
+
     if (business && business.business_name) {
       doc.fontSize(16).font(FONT_HEAVY).text(business.business_name, 50, topY);
       doc.fontSize(9).font(FONT_BODY).fillColor('#555555');
@@ -74,9 +89,16 @@ function renderInvoiceDocument(doc, invoice, items, business) {
       doc.fillColor('black');
     }
 
+    // Bottom of the left-hand (logo + business) column.
+    const leftColumnEnd = doc.y;
+
     doc.fontSize(26).font(FONT_HEAVY).fillColor('#111111')
-      .text('INVOICE', 50, topY, { align: 'right' });
+      .text('INVOICE', 50, headerTop, { align: 'right' });
     doc.fillColor('black');
+
+    // Continue below whichever column is taller so the logo can't overlap the
+    // meta block.
+    doc.y = Math.max(leftColumnEnd, doc.y);
 
     doc.moveDown(2);
 
@@ -197,10 +219,8 @@ function renderInvoiceDocument(doc, invoice, items, business) {
 function generateInvoicePdf(invoice, items, res, business = null) {
   const doc = new PDFDocument({ margin: 50 });
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    `inline; filename=invoice_${invoice.invoice_number}.pdf`
-  );
+  const safeName = String(invoice.invoice_number || 'invoice').replace(/[^\w.-]+/g, '-');
+  res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
   doc.on('error', (err) => {
     console.error('PDF generation error:', err);
     if (res.headersSent) res.end();

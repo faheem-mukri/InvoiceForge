@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation';
 
 import { useAuth } from '@/context/AuthContext';
 import { useToast } from '@/context/ToastContext';
-import { invoiceApi, clientApi, businessApi, paymentSettingsApi } from '@/lib/api';
+import { invoiceApi, clientApi, businessApi, paymentSettingsApi, productApi } from '@/lib/api';
 import { formatMoney } from '@/lib/format';
 import { computeTotals, toMinorUnits } from '@/lib/pricing';
 
@@ -42,6 +42,7 @@ export default function InvoiceEditor({ mode = 'create', invoiceId, initial = nu
   const [business, setBusiness] = useState(null);
   const [clients, setClients] = useState([]);
   const [paySettings, setPaySettings] = useState(null);
+  const [products, setProducts] = useState([]);
   const [ready, setReady] = useState(mode === 'create' ? false : true);
 
   // ── form state ──
@@ -96,14 +97,16 @@ export default function InvoiceEditor({ mode = 'create', invoiceId, initial = nu
     if (authLoading || !token) return;
     (async () => {
       try {
-        const [b, c, ps] = await Promise.all([
+        const [b, c, ps, pr] = await Promise.all([
           businessApi.get(token),
           clientApi.list(token, { limit: 100 }),
           paymentSettingsApi.get(token),
+          productApi.list(token, { activeOnly: 'true' }),
         ]);
         setBusiness(b.data);
         setClients(c.data.clients || []);
         setPaySettings(ps.data);
+        setProducts(pr.data || []);
         if (mode === 'create') {
           if (!currency || currency === 'USD') setCurrency(b.data.default_currency || 'USD');
           if (!paymentMethod && ps.data?.default_method) {
@@ -151,6 +154,35 @@ export default function InvoiceEditor({ mode = 'create', invoiceId, initial = nu
   function updateItem(i, field, value) {
     setItems((prev) => prev.map((it, idx) => (idx === i ? { ...it, [field]: value } : it)));
   }
+  // Append a line item pre-filled from the saved catalog, so users don't
+  // retype the same products/services on every invoice.
+  function addFromCatalog(productId) {
+    if (!productId) return;
+    const p = products.find((x) => x.id === productId);
+    if (!p) return;
+
+    setItems((prev) => {
+      const next = [...prev, {
+        description: p.description?.trim() || p.name,
+        quantity: '1',
+        unit: p.unit || '',
+        unitPrice: p.unit_price != null ? (p.unit_price / 100).toString() : '',
+      }];
+      // If the only existing row is still untouched, replace it instead of
+      // leaving an empty line behind.
+      const first = prev[0];
+      const firstIsBlank =
+        prev.length === 1 && !first.description && !first.unitPrice;
+      return firstIsBlank ? next.slice(1) : next;
+    });
+
+    // Adopt the item's tax rate if the invoice has none set yet.
+    if (Number(p.tax_rate) > 0 && !taxRate) {
+      setTaxRate(String(p.tax_rate));
+      if (taxType === 'NONE') setTaxType('CUSTOM');
+    }
+  }
+
   function addItem() {
     setItems((prev) => [...prev, blankItem()]);
   }
@@ -394,8 +426,34 @@ export default function InvoiceEditor({ mode = 'create', invoiceId, initial = nu
         <Card className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Items</h2>
-            <button type="button" onClick={addItem} className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400">+ Add item</button>
+            <div className="flex items-center gap-3">
+              {products.length > 0 && (
+                <select
+                  aria-label="Add a saved product or service"
+                  value=""
+                  onChange={(e) => {
+                    addFromCatalog(e.target.value);
+                    e.target.value = '';
+                  }}
+                  className="text-sm rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-900 text-gray-700 dark:text-gray-200 px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Add from catalog…</option>
+                  {products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                      {p.unit_price != null ? ` — ${formatMoney(p.unit_price, p.currency)}` : ''}
+                    </option>
+                  ))}
+                </select>
+              )}
+              <button type="button" onClick={addItem} className="text-sm font-medium text-blue-600 hover:text-blue-700 dark:text-blue-400">+ Add item</button>
+            </div>
           </div>
+          {products.length === 0 && (
+            <p className="text-xs text-gray-400 dark:text-gray-500">
+              Tip: save items in <Link href="/products" className="text-blue-600 dark:text-blue-400">Products &amp; Services</Link> to reuse them here.
+            </p>
+          )}
           <div className="space-y-3">
             {items.map((item, i) => (
               <div key={i} className="grid grid-cols-12 gap-2 items-start border-b border-gray-100 dark:border-slate-800 pb-3 last:border-0 last:pb-0">

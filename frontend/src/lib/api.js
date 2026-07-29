@@ -1,4 +1,9 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
+// Default to the same-origin '/api' proxy (see next.config.mjs rewrites) so
+// auth cookies stay first-party. This is what makes login work on iOS
+// Safari/Chrome and any browser that blocks third-party cookies.
+// Set NEXT_PUBLIC_API_URL only if you intentionally want to call the backend
+// origin directly (not recommended for cookie auth).
+const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || '/api').replace(/\/$/, '');
 
 async function request(path, options = {}, token = null, _retried = false) {
   const headers = {
@@ -148,6 +153,20 @@ export const clientApi = {
     request(`/clients/${id}`, { method: 'PUT', body: JSON.stringify(body) }, token),
   remove: (token, id) =>
     request(`/clients/${id}`, { method: 'DELETE' }, token),
+};
+
+// ── Products (reusable catalog) ────────────────────
+export const productApi = {
+  list: (token, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/products${query ? '?' + query : ''}`, {}, token);
+  },
+  get: (token, id) => request(`/products/${id}`, {}, token),
+  create: (token, body) =>
+    request('/products', { method: 'POST', body: JSON.stringify(body) }, token),
+  update: (token, id, body) =>
+    request(`/products/${id}`, { method: 'PUT', body: JSON.stringify(body) }, token),
+  remove: (token, id) => request(`/products/${id}`, { method: 'DELETE' }, token),
 };
 
 // ── Dashboard ─────────────────────────────────────

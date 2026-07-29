@@ -52,10 +52,10 @@ export default function Modal({
       <div
         role="dialog"
         aria-modal="true"
-        className={`relative w-full ${sizes[size] || sizes.md} bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-800 animate-[modalIn_0.18s_ease-out]`}
+        className={`relative w-full ${sizes[size] || sizes.md} max-h-[90vh] flex flex-col bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-800 animate-[modalIn_0.18s_ease-out]`}
       >
         {title && (
-          <div className="flex items-center justify-between px-6 pt-5 pb-3">
+          <div className="flex items-center justify-between px-6 pt-5 pb-3 shrink-0">
             <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
               {title}
             </h3>
@@ -73,12 +73,12 @@ export default function Modal({
           </div>
         )}
 
-        <div className="px-6 py-2 text-sm text-gray-600 dark:text-gray-300">
+        <div className="px-6 py-2 text-sm text-gray-600 dark:text-gray-300 flex-1 overflow-y-auto">
           {children}
         </div>
 
         {footer && (
-          <div className="flex items-center justify-end gap-3 px-6 pt-3 pb-5">
+          <div className="flex items-center justify-end gap-3 px-6 pt-3 pb-5 shrink-0 border-t border-gray-100 dark:border-slate-800">
             {footer}
           </div>
         )}

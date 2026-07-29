@@ -29,11 +29,13 @@ export const metadata = {
     url: '/',
     siteName: 'InvoiceForge',
     type: 'website',
+    images: [{ url: '/og.png', width: 1200, height: 630, alt: 'InvoiceForge' }],
   },
   twitter: {
     card: 'summary_large_image',
     title: 'InvoiceForge — Professional invoices in minutes',
     description: DESCRIPTION,
+    images: ['/og.png'],
   },
 };
 
