@@ -73,15 +73,25 @@ tests/
 │   ├── stripe.mock.js   records calls, can force failures
 │   └── email.mock.js    captures an outbox, can force failures
 ├── utils/               unit tests (no database)
-├── auth/                registration, login, sessions, refresh, logout
+├── auth/                registration, login, sessions, 2FA, password reset, account deletion
 ├── middleware/          JWT handling, error handlers, rate limiting
 ├── invoices/            CRUD, ownership, lifecycle, PDFs
 ├── clients/             CRUD, search, ownership
 ├── products/            catalog CRUD, soft delete
 ├── payments/            manual + Stripe payments, webhooks
 ├── settings/            business profile, logo, payment settings
+├── dashboard/           aggregation, multi-currency normalisation
+├── public/              unauthenticated invoice view, guest PDF
 └── database/            constraints, cascades, transactions, concurrency
 ```
+
+### Two kinds of HTTP client
+
+`client()` is stateless and keeps no cookies — use it for unauthenticated
+requests. `registerUser()` and `loginAs()` return cookie-persisting **agents**,
+which is what makes ownership tests honest: two agents are genuinely two
+different users. Logging in through `client()` and then making an authenticated
+request will fail with a 401, because the session was never retained.
 
 ### Two projects
 
@@ -97,27 +107,50 @@ deploys.
 
 ---
 
-## External services are always mocked
+## External services are never contacted
 
-No test may make a real network call. `envSetup.js` replaces `global.fetch` with a
-version that throws, so an accidental outbound request fails loudly instead of
-making the suite slow and flaky.
+`envSetup.js` replaces `global.fetch`. Known providers are intercepted and
+anything else throws, so an accidental outbound request fails loudly instead of
+making the suite slow, flaky and dependent on a third party.
 
-Mocked at the module boundary, leaving the rest of the app running for real:
+### `vi.mock` does not work here — read this before adding a mock
 
-| Service | Mock | Notes |
+The application is **CommonJS**. Its dependencies are resolved by Node's
+`require()`, which never consults Vitest's mock registry, so `vi.mock()` cannot
+replace `src/utils/email.js` or `src/payments/stripe.js` — no matter which file
+declares it. Two mechanisms are used instead:
+
+| Service | Mechanism | Notes |
 | --- | --- | --- |
-| Stripe | `mocks/stripe.mock.js` | Records calls in `__calls`; `webhooks.constructEvent` rejects a missing or `invalid` signature so signature enforcement is genuinely tested. |
-| Email | `mocks/email.mock.js` | Captures messages in `__outbox`; `failNext()` simulates a provider outage. |
-| PDF | not mocked | PDFKit runs for real and in-process. It is fast, has no network dependency, and previously shipped two production bugs — so it is worth exercising. |
+| Stripe | **Injection.** `src/payments/stripe.js` resolves its client on every property access, so `dbSetup` swaps in a fake via `__setTestClient()` before each test — effective even for modules required long beforehand. | `mocks/stripe.mock.js` records calls in `__calls`. `webhooks.constructEvent` rejects a missing or `invalid` signature, so signature enforcement is genuinely tested. |
+| Email | **HTTP capture.** The Brevo provider is selected with a fake key and its outbound request is intercepted, so the real email code runs and is asserted on. | `helpers/outbox.js` normalises each payload into `__outbox` and classifies it (`invoice`, `thankyou`, `passwordReset`…). |
+| Exchange rates | Intercepted and served a fixed rate table, so multi-currency figures are exact rather than dependent on the day's market data. | The unreachable-provider fallback is covered in `utils/exchangeRates.test.js`. |
+| PDF | Not mocked. PDFKit runs for real, in-process. It is fast, needs no network, and has already shipped two production bugs — so it is worth exercising. | |
 
-Forcing a failure:
+A useful side effect of capturing email at the HTTP boundary is that the tests
+verify real behaviour — subject construction, the `via InvoiceForge` sender name,
+`Reply-To` routing and the PDF attachment — rather than a stub of it.
+
+Forcing a provider outage:
 
 ```js
-import { failNext } from '../mocks/email.mock.js';
+import { failNext } from '../helpers/outbox.js';
 
 failNext(new Error('provider down'));
-// assert the invoice still saved
+// assert the invoice still saved — email is best-effort
+```
+
+### Notifications are dispatched without being awaited
+
+Payment notifications are deliberately fire-and-forget so a slow mail provider
+cannot delay an API response. An assertion made immediately after the request can
+therefore run before the email exists — poll instead:
+
+```js
+await vi.waitFor(
+  () => expect(byType('thankyou')).toHaveLength(1),
+  { timeout: 5000, interval: 50 }
+);
 ```
 
 ---
@@ -221,7 +254,12 @@ Without those settings, hosts deploy on push and ignore CI results.
 database name doesn't contain `test`. Fix the URL rather than overriding.
 
 **`Unexpected outbound HTTP request`** — code under test tried to reach the
-internet. Add a mock in `tests/mocks/` instead of allowing the call.
+internet. Add an interception branch to the `fetch` router in
+`tests/setup/envSetup.js` instead of allowing the call.
+
+**A mock appears to be ignored** — if the real email or Stripe code runs anyway,
+you have probably reached for `vi.mock()`. It cannot intercept CommonJS
+`require()`; see the section above for the two mechanisms that do work.
 
 **Tests pass alone but fail together** — shared state. Check for a module-level
 cache (see the `exchangeRates` tests, which reset modules) or a fixture using a

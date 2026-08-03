@@ -8,9 +8,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:unit": "vitest run --project unit",
     "test:auth": "vitest run tests/auth",
-    "test:invoices": "vitest run tests/invoices",
-    "db:test:reset": "node tests/helpers/resetTestDb.js"
+    "test:invoices": "vitest run tests/invoices"
   },
   "keywords": [],
   "author": "",
