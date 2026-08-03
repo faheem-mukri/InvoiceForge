@@ -29,10 +29,15 @@ process.env.DISABLE_RATE_LIMIT = 'true';
 
 // Strip credentials for anything that must never be contacted.
 delete process.env.STRIPE_SECRET_KEY;
-delete process.env.BREVO_API_KEY;
 delete process.env.RESEND_API_KEY;
 delete process.env.SMTP_HOST;
 delete process.env.GOOGLE_CLIENT_ID;
+
+// Email is captured at the HTTP boundary rather than module-mocked (see
+// tests/helpers/outbox.js). Selecting the Brevo provider with a fake key means
+// the real email code runs and its outbound request is intercepted below.
+process.env.BREVO_API_KEY = 'test-brevo-key-not-real';
+process.env.EMAIL_FROM = 'InvoiceForge <no-reply@invoiceforge.test>';
 
 /**
  * Resolve the test database.
@@ -65,21 +70,32 @@ process.env.TEST_DATABASE_URL = TEST_DB_URL;
 process.env.DATABASE_URL = TEST_DB_URL;
 process.env.DATABASE_SSL = process.env.TEST_DATABASE_SSL || 'false';
 
-// NOTE: service mocks are NOT declared here. vi.mock() is hoisted to the top of
-// the file it appears in, and a setup file's mocks do not apply to a test file's
-// module graph — the real modules load instead. Each integration test file
-// therefore declares its own:
+// ── Why vi.mock is not used for services ────────────────────────────────────
+// The application is CommonJS and loads its dependencies with require(), which
+// Node's loader resolves directly — Vitest's mock registry is never consulted.
+// vi.mock() therefore cannot replace src/utils/email.js or src/payments/stripe.js,
+// wherever it is declared. Two mechanisms are used instead:
 //
-//   vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
-//   vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
+//   Stripe — src/payments/stripe.js resolves its client on every property
+//            access, so dbSetup injects a fake client via __setTestClient().
+//   Email  — captured at the HTTP boundary: the Brevo provider is selected with
+//            a fake key below and the outbound request is intercepted, so the
+//            real email code runs and is asserted on (see helpers/outbox.js).
 
-// ── Fail loudly on unexpected outbound HTTP ─────────────────────────────────
-// A test reaching the internet is a bug: slow, flaky, dependent on third
-// parties. Supertest drives the app in-process and doesn't use global fetch, so
-// trapping it here is safe. Tests that need fetch (e.g. FX rates) stub it.
-globalThis.fetch = vi.fn(async (url) => {
+// ── Intercept outbound HTTP ─────────────────────────────────────────────────
+// Known providers are captured; anything else throws, because a test reaching
+// the internet is a bug — slow, flaky and dependent on third parties. Supertest
+// drives the app in-process and does not use global fetch, so this is safe.
+// Unit tests that exercise fetch directly (e.g. FX rates) override it.
+import { handleBrevoRequest } from '../helpers/outbox.js';
+
+globalThis.fetch = vi.fn(async (url, init) => {
+  const target = String(url);
+
+  if (target.includes('api.brevo.com')) return handleBrevoRequest(init);
+
   throw new Error(
-    `Unexpected outbound HTTP request to "${url}" during tests. ` +
-      'External services must be mocked — see tests/mocks/.'
+    `Unexpected outbound HTTP request to "${target}" during tests. ` +
+      'External services must be intercepted — see tests/helpers/outbox.js.'
   );
 });

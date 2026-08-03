@@ -1,14 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { client, registerUser } from '../helpers/api.js';
 import { fakeProduct } from '../fixtures/index.js';
 import { getPool } from '../helpers/testDb.js';
-
-// External services are mocked here rather than in a setup file: vi.mock() is
-// hoisted to the top of the file it appears in, so it must be declared per test
-// file to apply to this module graph.
-vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
-vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
-
 
 const createProduct = async (agent, overrides) => {
   const res = await agent.post('/products').send(fakeProduct(overrides));

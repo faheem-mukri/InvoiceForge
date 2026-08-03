@@ -1,15 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { registerUser, createInvoice, createSentInvoice } from '../helpers/api.js';
 import { fakeInvoice } from '../fixtures/index.js';
 import { getPool } from '../helpers/testDb.js';
-import { __outbox, failNext } from '../mocks/email.mock.js';
-
-// External services are mocked here rather than in a setup file: vi.mock() is
-// hoisted to the top of the file it appears in, so it must be declared per test
-// file to apply to this module graph.
-vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
-vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
-
+import { __outbox, failNext } from '../helpers/outbox.js';
 
 const statusOf = async (invoiceId) => {
   const { rows } = await getPool().query('SELECT status FROM invoices WHERE id = $1', [invoiceId]);
@@ -48,7 +41,10 @@ describe('POST /invoices/:id/send', () => {
     await agent.post(`/invoices/${invoiceId}/send`);
 
     const [message] = __outbox.filter((m) => m.type === 'invoice');
-    expect(message.fromName).toBe('Priya Bakery');
+    // Sent from our authenticated address but shown as the business, because a
+    // user's own domain has no SPF/DKIM record for our provider.
+    expect(message.fromName).toBe('Priya Bakery (via InvoiceForge)');
+    expect(message.fromEmail).toBe('no-reply@invoiceforge.test');
     expect(message.replyTo).toBe('priya@bakery.test');
   });
 

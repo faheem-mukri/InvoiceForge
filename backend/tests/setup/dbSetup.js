@@ -7,8 +7,13 @@
  */
 import { beforeAll, afterAll, beforeEach } from 'vitest';
 import { ensureDatabaseExists, migrate, truncateAll, closePool } from '../helpers/testDb.js';
-import { resetEmailMock } from '../mocks/email.mock.js';
-import { resetStripeMock } from '../mocks/stripe.mock.js';
+import { resetOutbox } from '../helpers/outbox.js';
+import stripeModule, { resetStripeMock } from '../mocks/stripe.mock.js';
+
+// The real Stripe module resolves its client on every property access, so
+// injecting here replaces it for the whole app — including modules that were
+// required long before this ran.
+const realStripe = (await import('../../src/payments/stripe.js')).default;
 
 beforeAll(async () => {
   try {
@@ -30,11 +35,15 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await truncateAll();
-  resetEmailMock();
+  resetOutbox();
   resetStripeMock();
+  // Re-inject every test so a suite that clears mocks can't leak the real
+  // client into the next one.
+  realStripe.__setTestClient(stripeModule);
 });
 
 afterAll(async () => {
+  realStripe.__resetTestClient();
   await closePool();
   // Release the app's own pool so the worker can exit cleanly.
   try {
