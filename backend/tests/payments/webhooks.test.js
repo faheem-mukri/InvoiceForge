@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { client, registerUser, createSentInvoice } from '../helpers/api.js';
 import { getPool } from '../helpers/testDb.js';
 import { __outbox } from '../helpers/outbox.js';
@@ -96,7 +96,14 @@ describe('POST /webhooks/stripe', () => {
 
       await postWebhook(checkoutCompleted(invoiceId));
 
-      expect(__outbox.filter((m) => m.type === 'thankyou')).toHaveLength(1);
+      // Notifications are dispatched without being awaited so the webhook can
+      // acknowledge Stripe immediately, so wait for delivery.
+      await vi.waitFor(
+        () => {
+          expect(__outbox.filter((m) => m.type === 'thankyou')).toHaveLength(1);
+        },
+        { timeout: 5000, interval: 50 }
+      );
     });
 
     it('is idempotent — Stripe retries must not double-record', async () => {

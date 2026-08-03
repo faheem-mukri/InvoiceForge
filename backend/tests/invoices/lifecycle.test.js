@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { registerUser, createInvoice, createSentInvoice } from '../helpers/api.js';
 import { fakeInvoice } from '../fixtures/index.js';
 import { getPool } from '../helpers/testDb.js';
@@ -167,7 +167,15 @@ describe('POST /invoices/:id/mark-paid', () => {
 
     await agent.post(`/invoices/${invoiceId}/mark-paid`).send({ method: 'CASH' });
 
-    expect(__outbox.filter((m) => m.type === 'thankyou')).toHaveLength(1);
+    // Payment notifications are dispatched without being awaited, so that a
+    // slow mail provider can't delay the response. The assertion therefore has
+    // to wait for them rather than assume they've already been sent.
+    await vi.waitFor(
+      () => {
+        expect(__outbox.filter((m) => m.type === 'thankyou')).toHaveLength(1);
+      },
+      { timeout: 5000, interval: 50 }
+    );
   });
 
   it('refuses to mark a draft as paid', async () => {
