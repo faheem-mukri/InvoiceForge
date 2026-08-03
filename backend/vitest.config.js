@@ -34,6 +34,8 @@ export default defineConfig({
             'tests/settings/**/*.test.js',
             'tests/middleware/**/*.test.js',
             'tests/database/**/*.test.js',
+            'tests/dashboard/**/*.test.js',
+            'tests/public/**/*.test.js',
           ],
           setupFiles: ['./tests/setup/envSetup.js', './tests/setup/dbSetup.js'],
 
