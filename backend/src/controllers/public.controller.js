@@ -1,7 +1,19 @@
 const { getPublicInvoice } = require("../services/invoice.service");
 const { createPublicCheckoutSession } = require("../services/payment.service");
+const { isUuid } = require("../utils/validate");
+
+function invoiceNotFound(res) {
+  return res.status(404).json({
+    success: false,
+    error: { code: "NOT_FOUND", message: "Invoice not found." },
+  });
+}
 
 async function viewInvoice(req, res) {
+  // These routes are unauthenticated, so the id comes straight from a URL a
+  // stranger typed. Reject a malformed one before it reaches Postgres.
+  if (!isUuid(req.params.id)) return invoiceNotFound(res);
+
   try {
     const data = await getPublicInvoice(req.params.id);
     return res.json({ success: true, data });
@@ -21,6 +33,8 @@ async function viewInvoice(req, res) {
 }
 
 async function checkout(req, res) {
+  if (!isUuid(req.params.id)) return invoiceNotFound(res);
+
   try {
     const result = await createPublicCheckoutSession(req.params.id);
     return res.json({ success: true, data: result });
@@ -58,6 +72,10 @@ function resultPage(title, message) {
 // Email "Pay Now" target: creates a Stripe Checkout session and redirects the
 // customer straight to Stripe (no public InvoiceForge page in between).
 async function payRedirect(req, res) {
+  if (!isUuid(req.params.id)) {
+    return res.status(404).send(resultPage("Payment unavailable", "This invoice could not be found."));
+  }
+
   try {
     const result = await createPublicCheckoutSession(req.params.id);
     return res.redirect(303, result.url);

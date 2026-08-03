@@ -89,10 +89,24 @@ process.env.DATABASE_SSL = process.env.TEST_DATABASE_SSL || 'false';
 // Unit tests that exercise fetch directly (e.g. FX rates) override it.
 import { handleBrevoRequest } from '../helpers/outbox.js';
 
+// Fixed FX rates, so multi-currency assertions are deterministic instead of
+// depending on the day's market data. The unreachable-provider fallback is
+// covered separately in tests/utils/exchangeRates.test.js.
+export const TEST_FX_RATES = { USD: 1, INR: 80, EUR: 0.9, GBP: 0.8 };
+
 globalThis.fetch = vi.fn(async (url, init) => {
   const target = String(url);
 
   if (target.includes('api.brevo.com')) return handleBrevoRequest(init);
+
+  if (target.includes('open.er-api.com')) {
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ result: 'success', rates: TEST_FX_RATES }),
+      text: async () => JSON.stringify({ result: 'success', rates: TEST_FX_RATES }),
+    };
+  }
 
   throw new Error(
     `Unexpected outbound HTTP request to "${target}" during tests. ` +

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { client, registerUser, createInvoice } from '../helpers/api.js';
+import { client, registerUser, createInvoice, loginAs } from '../helpers/api.js';
 import { getPool } from '../helpers/testDb.js';
 
 /**
@@ -105,18 +105,14 @@ describe('account recovery', () => {
     const { invoiceId } = await createInvoice(agent);
     await agent.delete('/auth/account').send({ password: credentials.password });
 
-    const restored = client();
-    await restored
-      .post('/auth/login')
-      .send({ email: credentials.email, password: credentials.password });
-    const me = client();
-    const login = await me
-      .post('/auth/login')
-      .send({ email: credentials.email, password: credentials.password });
-    expect(login.status).toBe(200);
+    // A cookie-persisting session is required here: logging in through the
+    // stateless client would not retain the new session.
+    const { session } = await loginAs(credentials);
 
-    const res = await me.get(`/invoices/${invoiceId}`);
+    const res = await session.get(`/invoices/${invoiceId}`);
+
     expect(res.status).toBe(200);
+    expect(res.body.data.invoice.id).toBe(invoiceId);
   });
 
   it('reports restored: false for an ordinary login', async () => {

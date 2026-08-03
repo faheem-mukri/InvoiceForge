@@ -12,8 +12,29 @@ import { fakeUser, fakeInvoice, fakeClient } from '../fixtures/index.js';
 // src/app.js is CommonJS, so the Express app arrives as the default export.
 export const app = appModule.default ?? appModule;
 
-/** Unauthenticated client. */
+/**
+ * Unauthenticated, stateless client. Each call is independent and cookies are
+ * NOT retained — use `agent()` when a test needs to stay logged in.
+ */
 export const client = () => request(app);
+
+/**
+ * A fresh client with a cookie jar, for tests that log in and then make
+ * authenticated requests (e.g. verifying account recovery).
+ */
+export const agent = () => request.agent(app);
+
+/** Logs an existing user in on a new agent and returns it. */
+export async function loginAs(credentials) {
+  const session = request.agent(app);
+  const res = await session
+    .post('/auth/login')
+    .send({ email: credentials.email, password: credentials.password });
+  if (res.status !== 200) {
+    throw new Error(`Login failed (${res.status}): ${JSON.stringify(res.body)}`);
+  }
+  return { session, body: res.body };
+}
 
 /**
  * Registers a user and returns a cookie-persisting agent, the credentials, and

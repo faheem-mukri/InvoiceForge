@@ -65,6 +65,37 @@ describe('normalizeEmail', () => {
   });
 });
 
+describe('isUuid', () => {
+  // Route params reach uuid-typed queries directly, so an unparseable value
+  // would make Postgres raise 22P02 and surface as a 500.
+  it.each([
+    '550e8400-e29b-41d4-a716-446655440000',
+    '00000000-0000-0000-0000-000000000000',
+    '6EB41492-E4C2-4346-B53D-B03B19ACC77C', // uppercase
+  ])('accepts the valid uuid %s', (value) => {
+    expect(validateModule.isUuid(value)).toBe(true);
+  });
+
+  it.each([
+    ['plain text', 'not-a-uuid'],
+    ['empty', ''],
+    ['too short', '550e8400-e29b-41d4-a716'],
+    ['no hyphens', '550e8400e29b41d4a716446655440000'],
+    ['non-hex characters', '550e8400-e29b-41d4-a716-44665544zzzz'],
+    ['SQL fragment', "' OR 1=1--"],
+  ])('rejects %s', (_label, value) => {
+    expect(validateModule.isUuid(value)).toBe(false);
+  });
+
+  it.each([null, undefined, 123, {}, []])('rejects the non-string %s', (value) => {
+    expect(validateModule.isUuid(value)).toBe(false);
+  });
+
+  it('tolerates surrounding whitespace', () => {
+    expect(validateModule.isUuid('  550e8400-e29b-41d4-a716-446655440000  ')).toBe(true);
+  });
+});
+
 describe('validatePassword', () => {
   it('accepts a reasonable password', () => {
     expect(validatePassword('CorrectHorse123')).toBeNull();

@@ -36,6 +36,9 @@ describe('GET /dashboard', () => {
 
   it('separates billed, collected and outstanding revenue', async () => {
     const { agent } = await registerUser();
+    // Match the base currency to the invoice currency so the figures are exact
+    // rather than converted — conversion is covered separately below.
+    await agent.put('/business').send({ default_currency: 'INR' });
     const paid = await createSentInvoice(agent);       // 5000.00
     await agent.post(`/invoices/${paid.invoiceId}/mark-paid`).send({ method: 'CASH' });
     await createSentInvoice(agent);                    // 5000.00 outstanding
@@ -51,6 +54,7 @@ describe('GET /dashboard', () => {
   it('excludes drafts from outstanding revenue', async () => {
     // A draft has not been billed to anyone, so it cannot be owed.
     const { agent } = await registerUser();
+    await agent.put('/business').send({ default_currency: 'INR' });
     await createInvoice(agent);
 
     const res = await agent.get('/dashboard');
@@ -90,31 +94,29 @@ describe('GET /dashboard', () => {
   });
 
   it('normalises a foreign-currency invoice into the base currency', async () => {
-    // Summing 100 USD and 100 INR as 200 would be badly misleading.
+    // Summing 5000 USD and 5000 INR as 10000 would be badly misleading.
+    // Tests use a fixed rate table (80 INR per USD), so this is exact.
     const { agent } = await registerUser();
     await agent.put('/business').send({ default_currency: 'INR' });
-    await createSentInvoice(agent, { currency: 'USD' });
+    await createSentInvoice(agent, { currency: 'USD' }); // 5000.00 USD
 
     const res = await agent.get('/dashboard');
 
     const { revenue } = res.body.data;
     expect(revenue.currency).toBe('INR');
     expect(revenue.mixedCurrency).toBe(true);
-    // 5000 USD converts to substantially more than 5000 INR.
-    expect(revenue.totalBilled).toBeGreaterThan(500000);
+    expect(revenue.totalBilled).toBe(500000 * 80);
   });
 
-  it('still returns figures when the rate service is unavailable', async () => {
-    // The FX provider is unreachable in tests, so this exercises the fallback:
-    // the dashboard must render rather than error.
+  it('sums a mix of currencies into one comparable figure', async () => {
     const { agent } = await registerUser();
     await agent.put('/business').send({ default_currency: 'INR' });
-    await createSentInvoice(agent, { currency: 'USD' });
+    await createSentInvoice(agent, { currency: 'INR' }); // 5000.00 INR
+    await createSentInvoice(agent, { currency: 'USD' }); // 5000.00 USD -> 400000 INR
 
     const res = await agent.get('/dashboard');
 
-    expect(res.status).toBe(200);
-    expect(res.body.data.revenue.totalBilled).toBeGreaterThan(0);
+    expect(res.body.data.revenue.totalBilled).toBe(500000 + 500000 * 80);
   });
 
   it('lists the most recent invoices', async () => {

@@ -688,9 +688,23 @@ async function getInvoiceSummary(userId) {
 
 // Public view for the customer payment page. Only payable/paid invoices are
 // exposed (never DRAFT/CANCELLED), and only safe presentation fields.
+//
+// The column list is explicit and deliberately excludes internal fields —
+// user_id, client_id, delivery_status, deleted_at and friends. This endpoint is
+// unauthenticated, so anyone holding the invoice link receives this payload;
+// `SELECT *` here previously leaked the owner's user id to them.
 async function getPublicInvoice(invoiceId) {
   const invoiceResult = await pool.query(
-    `SELECT * FROM invoices WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT id, type, status, invoice_number,
+            client_name, client_email, client_phone, client_company,
+            client_address, shipping_address, currency,
+            discount_type, discount_value, tax_type, tax_rate,
+            subtotal, discount_amount, tax_amount, shipping_amount,
+            handling_amount, round_off, total_amount,
+            payment_method, payment_details, payment_terms,
+            notes, terms, issue_date, due_date, paid_at, created_at,
+            user_id AS owner_user_id
+     FROM invoices WHERE id = $1 AND deleted_at IS NULL`,
     [invoiceId]
   );
   if (invoiceResult.rows.length === 0) throw new Error('INVOICE_NOT_FOUND');
@@ -710,13 +724,27 @@ async function getPublicInvoice(invoiceId) {
       `SELECT business_name, business_email, business_phone, business_address, website, gst_number,
               logo_data, logo_mime
        FROM business_profiles WHERE user_id = $1`,
-      [invoice.user_id]
+      [invoice.owner_user_id]
     ),
   ]);
 
+  // The owner id was only needed to look up the business profile; it must not
+  // reach the customer.
+  const { owner_user_id: _ownerUserId, ...publicInvoice } = invoice;
+
   return {
-    invoice,
-    items: itemsResult.rows,
+    invoice: publicInvoice,
+    // Line items: presentation fields only, no internal ids.
+    items: itemsResult.rows.map((item) => ({
+      description: item.description,
+      quantity: item.quantity,
+      unit: item.unit,
+      unit_price: item.unit_price,
+      discount: item.discount,
+      tax: item.tax,
+      total_price: item.total_price,
+      position: item.position,
+    })),
     business: businessResult.rows[0] || null,
   };
 }

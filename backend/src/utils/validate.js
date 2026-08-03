@@ -53,9 +53,21 @@ function validatePassword(password) {
   return null;
 }
 
+// Route params are interpolated straight into uuid-typed queries. An
+// unparseable value makes Postgres raise 22P02, which surfaces as a 500 and
+// leaks a database error for what is really a bad request. Checking the shape
+// first lets callers return a clean 404.
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isUuid(value) {
+  return typeof value === 'string' && UUID_PATTERN.test(value.trim());
+}
+
 module.exports = {
   isValidEmail,
   normalizeEmail,
   validatePassword,
+  isUuid,
   MIN_PASSWORD_LENGTH,
 };
