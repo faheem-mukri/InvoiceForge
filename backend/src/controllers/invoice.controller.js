@@ -55,6 +55,16 @@ function handleInvoiceError(res, error, fallbackMessage) {
       error: { code: 'INVALID_STATE', message: 'Only SENT or PAID invoices can be downloaded as PDF.' },
     });
   }
+  // A malformed id (e.g. /invoices/not-a-uuid) reaches Postgres as an invalid
+  // uuid cast. That's a bad request, not a server fault — returning 404 keeps
+  // the response consistent with an id that simply doesn't exist, and avoids
+  // leaking a database error.
+  if (error.code === '22P02') {
+    return res.status(404).json({
+      success: false,
+      error: { code: 'NOT_FOUND', message: 'Invoice not found.' },
+    });
+  }
   console.error(error);
   return res.status(500).json({
     success: false,

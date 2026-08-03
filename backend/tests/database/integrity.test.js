@@ -1,7 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { registerUser, createInvoice, createSentInvoice, createClientRecord } from '../helpers/api.js';
 import { fakeProduct } from '../fixtures/index.js';
 import { getPool } from '../helpers/testDb.js';
+
+// External services are mocked here rather than in a setup file: vi.mock() is
+// hoisted to the top of the file it appears in, so it must be declared per test
+// file to apply to this module graph.
+vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
+
 
 /**
  * These tests exercise the database itself rather than the API.
@@ -128,16 +135,16 @@ describe('uniqueness constraints', () => {
     const b = await createSentInvoice(userB.agent);
 
     await getPool().query(
-      `INSERT INTO payments (invoice_id, provider, provider_payment_id, status, amount, currency)
-       VALUES ($1, 'STRIPE', 'pi_duplicate', 'SUCCESS', 100, 'INR')`,
-      [a.invoiceId]
+      `INSERT INTO payments (invoice_id, user_id, provider, provider_payment_id, status, amount, currency)
+       VALUES ($1, $2, 'STRIPE', 'pi_duplicate', 'SUCCESS', 100, 'INR')`,
+      [a.invoiceId, userA.userId]
     );
 
     await expect(
       getPool().query(
-        `INSERT INTO payments (invoice_id, provider, provider_payment_id, status, amount, currency)
-         VALUES ($1, 'STRIPE', 'pi_duplicate', 'SUCCESS', 100, 'INR')`,
-        [b.invoiceId]
+        `INSERT INTO payments (invoice_id, user_id, provider, provider_payment_id, status, amount, currency)
+         VALUES ($1, $2, 'STRIPE', 'pi_duplicate', 'SUCCESS', 100, 'INR')`,
+        [b.invoiceId, userB.userId]
       )
     ).rejects.toThrow();
   });
@@ -182,14 +189,14 @@ describe('transactions', () => {
     // Invoice creation writes to two tables; a partial write would leave an
     // invoice with no line items.
     const { userId } = await registerUser();
-    const db = getPool();
-    const conn = await db.connect();
+    const conn = await getPool().connect();
 
     try {
       await conn.query('BEGIN');
       const inserted = await conn.query(
-        `INSERT INTO invoices (user_id, type, status, invoice_number, client_name, currency, total_amount)
-         VALUES ($1, 'SERVICE', 'DRAFT', 'TXN-1', 'Acme', 'INR', 1000) RETURNING id`,
+        `INSERT INTO invoices
+           (user_id, type, status, invoice_number, client_name, currency, subtotal, total_amount)
+         VALUES ($1, 'SERVICE', 'DRAFT', 'TXN-1', 'Acme', 'INR', 1000, 1000) RETURNING id`,
         [userId]
       );
       await conn.query(
@@ -198,6 +205,11 @@ describe('transactions', () => {
         [inserted.rows[0].id]
       );
       await conn.query('ROLLBACK');
+    } catch (err) {
+      // Always end the transaction, or the connection returns to the pool in an
+      // aborted state and every later query on it fails.
+      await conn.query('ROLLBACK').catch(() => {});
+      throw err;
     } finally {
       conn.release();
     }
@@ -213,8 +225,9 @@ describe('transactions', () => {
     try {
       await conn.query('BEGIN');
       const inserted = await conn.query(
-        `INSERT INTO invoices (user_id, type, status, invoice_number, client_name, currency, total_amount)
-         VALUES ($1, 'SERVICE', 'DRAFT', 'TXN-2', 'Acme', 'INR', 1000) RETURNING id`,
+        `INSERT INTO invoices
+           (user_id, type, status, invoice_number, client_name, currency, subtotal, total_amount)
+         VALUES ($1, 'SERVICE', 'DRAFT', 'TXN-2', 'Acme', 'INR', 1000, 1000) RETURNING id`,
         [userId]
       );
       await conn.query(
@@ -223,6 +236,9 @@ describe('transactions', () => {
         [inserted.rows[0].id]
       );
       await conn.query('COMMIT');
+    } catch (err) {
+      await conn.query('ROLLBACK').catch(() => {});
+      throw err;
     } finally {
       conn.release();
     }

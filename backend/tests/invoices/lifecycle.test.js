@@ -1,8 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { registerUser, createInvoice, createSentInvoice } from '../helpers/api.js';
 import { fakeInvoice } from '../fixtures/index.js';
 import { getPool } from '../helpers/testDb.js';
 import { __outbox, failNext } from '../mocks/email.mock.js';
+
+// External services are mocked here rather than in a setup file: vi.mock() is
+// hoisted to the top of the file it appears in, so it must be declared per test
+// file to apply to this module graph.
+vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
+
 
 const statusOf = async (invoiceId) => {
   const { rows } = await getPool().query('SELECT status FROM invoices WHERE id = $1', [invoiceId]);
@@ -63,7 +70,8 @@ describe('POST /invoices/:id/send', () => {
 
     const res = await agent.post(`/invoices/${invoiceId}/send`);
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_STATE');
   });
 
   it('cannot send another user\'s invoice', async () => {
@@ -96,7 +104,8 @@ describe('POST /invoices/:id/resend', () => {
 
     const res = await agent.post(`/invoices/${invoiceId}/resend`);
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_STATE');
   });
 
   it('refuses to resend a paid invoice', async () => {
@@ -107,7 +116,8 @@ describe('POST /invoices/:id/resend', () => {
 
     const res = await agent.post(`/invoices/${invoiceId}/resend`);
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_STATE');
   });
 });
 
@@ -170,7 +180,8 @@ describe('POST /invoices/:id/mark-paid', () => {
 
     const res = await agent.post(`/invoices/${invoiceId}/mark-paid`).send({ method: 'CASH' });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_STATE');
   });
 
   it('is idempotent — a second mark-paid does not double-record', async () => {
@@ -180,7 +191,7 @@ describe('POST /invoices/:id/mark-paid', () => {
 
     const second = await agent.post(`/invoices/${invoiceId}/mark-paid`).send({ method: 'CASH' });
 
-    expect(second.status).toBe(409);
+    expect(second.status).toBe(400);
     const { rows } = await getPool().query(
       'SELECT count(*)::int AS n FROM payments WHERE invoice_id = $1',
       [invoiceId]
@@ -234,7 +245,8 @@ describe('GET /invoices/:id/pdf', () => {
 
     const res = await agent.get(`/invoices/${invoiceId}/pdf`);
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_STATE');
   });
 
   it('renders a paid invoice', async () => {

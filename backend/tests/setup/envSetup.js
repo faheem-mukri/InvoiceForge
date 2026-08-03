@@ -65,11 +65,13 @@ process.env.TEST_DATABASE_URL = TEST_DB_URL;
 process.env.DATABASE_URL = TEST_DB_URL;
 process.env.DATABASE_SSL = process.env.TEST_DATABASE_SSL || 'false';
 
-// ── Mock external services ──────────────────────────────────────────────────
-// Mocked at the module boundary so the rest of the app runs for real.
-// Paths must be literals: vi.mock calls are hoisted to the top of the file.
-vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
-vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+// NOTE: service mocks are NOT declared here. vi.mock() is hoisted to the top of
+// the file it appears in, and a setup file's mocks do not apply to a test file's
+// module graph — the real modules load instead. Each integration test file
+// therefore declares its own:
+//
+//   vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+//   vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
 
 // ── Fail loudly on unexpected outbound HTTP ─────────────────────────────────
 // A test reaching the internet is a bug: slow, flaky, dependent on third

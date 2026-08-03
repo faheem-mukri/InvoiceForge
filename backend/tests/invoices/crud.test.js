@@ -1,7 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { client, registerUser, createInvoice } from '../helpers/api.js';
 import { fakeInvoice, fakeItem } from '../fixtures/index.js';
 import { getPool } from '../helpers/testDb.js';
+
+// External services are mocked here rather than in a setup file: vi.mock() is
+// hoisted to the top of the file it appears in, so it must be declared per test
+// file to apply to this module graph.
+vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
+
 
 describe('POST /invoices', () => {
   it('creates a draft invoice with a generated number', async () => {
@@ -318,10 +325,12 @@ describe('GET /invoices/:id', () => {
   it('handles a malformed uuid without a 500', async () => {
     const { agent } = await registerUser();
 
+    // Regression: this previously reached Postgres as an invalid uuid cast and
+    // surfaced as a 500, leaking a database error for what is a bad request.
     const res = await agent.get('/invoices/not-a-uuid');
 
-    expect([400, 404, 422]).toContain(res.status);
-    expect(res.status).not.toBe(500);
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe('NOT_FOUND');
   });
 });
 
@@ -370,7 +379,10 @@ describe('PUT /invoices/:id', () => {
 
     const res = await agent.put(`/invoices/${invoiceId}`).send(fakeInvoice());
 
-    expect(res.status).toBe(409);
+    // The API reports a disallowed state transition as 400 INVALID_STATE.
+    // (409 Conflict would be more precise; changing it is an API decision.)
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('INVALID_STATE');
   });
 
   it('cannot update another user\'s invoice', async () => {

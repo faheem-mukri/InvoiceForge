@@ -13,6 +13,12 @@ function notFound(res) {
   });
 }
 
+// A malformed id reaches Postgres as an invalid uuid cast (22P02). That's a bad
+// request, not a server fault, so treat it like an id that doesn't exist.
+function isMalformedId(err) {
+  return err && err.code === "22P02";
+}
+
 function serverError(res, message) {
   return res.status(500).json({
     success: false,
@@ -55,6 +61,7 @@ async function getOne(req, res) {
     if (!product) return notFound(res);
     return res.json({ success: true, data: product });
   } catch (err) {
+    if (isMalformedId(err)) return notFound(res);
     console.error(err);
     return serverError(res, "Could not load product.");
   }
@@ -77,7 +84,7 @@ async function update(req, res) {
     const product = await updateProduct(req.user.id, req.params.id, req.body);
     return res.json({ success: true, data: product });
   } catch (err) {
-    if (err.message === "PRODUCT_NOT_FOUND") return notFound(res);
+    if (err.message === "PRODUCT_NOT_FOUND" || isMalformedId(err)) return notFound(res);
     const handled = handleValidation(res, err);
     if (handled) return handled;
     console.error(err);
@@ -90,7 +97,7 @@ async function remove(req, res) {
     await deleteProduct(req.user.id, req.params.id);
     return res.json({ success: true, data: { message: "Product deleted." } });
   } catch (err) {
-    if (err.message === "PRODUCT_NOT_FOUND") return notFound(res);
+    if (err.message === "PRODUCT_NOT_FOUND" || isMalformedId(err)) return notFound(res);
     console.error(err);
     return serverError(res, "Could not delete product.");
   }

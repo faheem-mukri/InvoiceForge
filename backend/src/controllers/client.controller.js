@@ -13,6 +13,12 @@ function notFound(res) {
   });
 }
 
+// A malformed id reaches Postgres as an invalid uuid cast (22P02). That's a bad
+// request, not a server fault, so treat it like an id that doesn't exist.
+function isMalformedId(err) {
+  return err && err.code === "22P02";
+}
+
 async function list(req, res) {
   try {
     const { q, page = 1, limit = 20 } = req.query;
@@ -55,7 +61,7 @@ async function getOne(req, res) {
     const client = await getClient(req.user.id, req.params.id);
     return res.json({ success: true, data: client });
   } catch (err) {
-    if (err.message === "NOT_FOUND") return notFound(res);
+    if (err.message === "NOT_FOUND" || isMalformedId(err)) return notFound(res);
     console.error(err);
     return res.status(500).json({
       success: false,
@@ -69,7 +75,7 @@ async function update(req, res) {
     const client = await updateClient(req.user.id, req.params.id, req.body);
     return res.json({ success: true, data: client });
   } catch (err) {
-    if (err.message === "NOT_FOUND") return notFound(res);
+    if (err.message === "NOT_FOUND" || isMalformedId(err)) return notFound(res);
     console.error(err);
     return res.status(500).json({
       success: false,
@@ -83,7 +89,7 @@ async function remove(req, res) {
     await deleteClient(req.user.id, req.params.id);
     return res.json({ success: true, data: { message: "Client deleted." } });
   } catch (err) {
-    if (err.message === "NOT_FOUND") return notFound(res);
+    if (err.message === "NOT_FOUND" || isMalformedId(err)) return notFound(res);
     console.error(err);
     return res.status(500).json({
       success: false,

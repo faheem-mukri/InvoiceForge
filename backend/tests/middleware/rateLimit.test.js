@@ -2,6 +2,13 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vites
 import request from 'supertest';
 import { fakeUser } from '../fixtures/index.js';
 
+// External services are mocked here rather than in a setup file: vi.mock() is
+// hoisted to the top of the file it appears in, so it must be declared per test
+// file to apply to this module graph.
+vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
+
+
 /**
  * The rest of the suite disables rate limiting (a full run makes far more than
  * 20 auth calls). This file re-enables it with a small ceiling and loads a fresh

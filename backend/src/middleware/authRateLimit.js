@@ -4,7 +4,9 @@ const rateLimit = require("express-rate-limit");
 // to slow down brute-force and credential-stuffing attempts.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: Number(process.env.AUTH_RATE_LIMIT_MAX) || 20, // per IP per window
+  // Read per request rather than captured at module load, so the ceiling can be
+  // changed without rebuilding the middleware (and so tests can lower it).
+  limit: () => Number(process.env.AUTH_RATE_LIMIT_MAX) || 20, // per IP per window
   standardHeaders: true,
   legacyHeaders: false,
   message: {

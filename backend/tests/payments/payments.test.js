@@ -1,7 +1,14 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { registerUser, createSentInvoice } from '../helpers/api.js';
 import { getPool } from '../helpers/testDb.js';
 import stripeMock, { __calls } from '../mocks/stripe.mock.js';
+
+// External services are mocked here rather than in a setup file: vi.mock() is
+// hoisted to the top of the file it appears in, so it must be declared per test
+// file to apply to this module graph.
+vi.mock('../../src/utils/email.js', () => import('../mocks/email.mock.js'));
+vi.mock('../../src/payments/stripe.js', () => import('../mocks/stripe.mock.js'));
+
 
 /**
  * Every Stripe interaction is mocked. These tests assert the *shape* of what we
@@ -143,41 +150,41 @@ describe('payment data integrity', () => {
   it('enforces one payment row per invoice', async () => {
     // A UNIQUE constraint is what stops a double-settlement race from
     // recording two payments for the same invoice.
-    const { agent } = await registerUser();
+    const { agent, userId } = await registerUser();
     const { invoiceId } = await createSentInvoice(agent);
     await agent.post(`/invoices/${invoiceId}/mark-paid`).send({ method: 'CASH' });
 
     await expect(
       getPool().query(
-        `INSERT INTO payments (invoice_id, provider, status, amount, currency)
-         VALUES ($1, 'MANUAL', 'SUCCESS', 1, 'INR')`,
-        [invoiceId]
+        `INSERT INTO payments (invoice_id, user_id, provider, status, amount, currency)
+         VALUES ($1, $2, 'MANUAL', 'SUCCESS', 1, 'INR')`,
+        [invoiceId, userId]
       )
     ).rejects.toThrow();
   });
 
   it('rejects a negative payment amount at the database level', async () => {
-    const { agent } = await registerUser();
+    const { agent, userId } = await registerUser();
     const { invoiceId } = await createSentInvoice(agent);
 
     await expect(
       getPool().query(
-        `INSERT INTO payments (invoice_id, provider, status, amount, currency)
-         VALUES ($1, 'MANUAL', 'SUCCESS', -100, 'INR')`,
-        [invoiceId]
+        `INSERT INTO payments (invoice_id, user_id, provider, status, amount, currency)
+         VALUES ($1, $2, 'MANUAL', 'SUCCESS', -100, 'INR')`,
+        [invoiceId, userId]
       )
     ).rejects.toThrow();
   });
 
   it('rejects an unknown payment provider', async () => {
-    const { agent } = await registerUser();
+    const { agent, userId } = await registerUser();
     const { invoiceId } = await createSentInvoice(agent);
 
     await expect(
       getPool().query(
-        `INSERT INTO payments (invoice_id, provider, status, amount, currency)
-         VALUES ($1, 'BITCOIN', 'SUCCESS', 100, 'INR')`,
-        [invoiceId]
+        `INSERT INTO payments (invoice_id, user_id, provider, status, amount, currency)
+         VALUES ($1, $2, 'BITCOIN', 'SUCCESS', 100, 'INR')`,
+        [invoiceId, userId]
       )
     ).rejects.toThrow();
   });
