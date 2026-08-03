@@ -5,7 +5,12 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:auth": "vitest run tests/auth",
+    "test:invoices": "vitest run tests/invoices",
+    "db:test:reset": "node tests/helpers/resetTestDb.js"
   },
   "keywords": [],
   "author": "",
@@ -29,6 +34,9 @@
     "stripe": "^20.3.0"
   },
   "devDependencies": {
-    "nodemon": "^3.1.14"
+    "@vitest/coverage-v8": "^3.2.4",
+    "nodemon": "^3.1.14",
+    "supertest": "^7.1.1",
+    "vitest": "^3.2.4"
   }
 }

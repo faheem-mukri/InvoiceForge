@@ -51,11 +51,14 @@ const provider = process.env.BREVO_API_KEY
   : "console";
 
 // attachments (caller format): [{ filename, content: Buffer, contentType }]
-async function sendViaBrevo({ to, subject, text, html, attachments }) {
+async function sendViaBrevo({ to, subject, text, html, attachments, replyTo, fromName }) {
   const sender = parseFrom(FROM);
   const body = {
-    sender,
+    // The email address must stay our verified sender; only the display name
+    // varies per business.
+    sender: { email: sender.email, name: fromName || sender.name },
     to: [{ email: to }],
+    ...(replyTo ? { replyTo: { email: replyTo } } : {}),
     subject,
     ...(html ? { htmlContent: html } : {}),
     ...(text ? { textContent: text } : {}),
@@ -76,10 +79,12 @@ async function sendViaBrevo({ to, subject, text, html, attachments }) {
   return { sent: true };
 }
 
-async function sendViaResend({ to, subject, text, html, attachments }) {
+async function sendViaResend({ to, subject, text, html, attachments, replyTo, fromName }) {
+  const sender = parseFrom(FROM);
   const body = {
-    from: FROM,
+    from: fromName ? `${fromName.replace(/[<>"]/g, "")} <${sender.email}>` : FROM,
     to: [to],
+    ...(replyTo ? { reply_to: [replyTo] } : {}),
     subject,
     ...(html ? { html } : {}),
     ...(text ? { text } : {}),
@@ -100,17 +105,36 @@ async function sendViaResend({ to, subject, text, html, attachments }) {
   return { sent: true };
 }
 
-async function sendMail({ to, subject, text, html, attachments }) {
+/**
+ * @param replyTo   Address replies should go to (the user's business email).
+ *                  We can't put the user's address in From — that needs SPF/DKIM
+ *                  on their domain — so mail is sent from our authenticated
+ *                  sender and replies are routed back to them.
+ * @param fromName  Optional display name, e.g. "Priya's Bakery (via InvoiceForge)",
+ *                  so the recipient recognises the business, not our app.
+ */
+async function sendMail({ to, subject, text, html, attachments, replyTo, fromName }) {
   if (!to) {
     console.warn("Email skipped: no recipient address.");
     return { sent: false, reason: "NO_RECIPIENT" };
   }
 
-  if (provider === "brevo") return sendViaBrevo({ to, subject, text, html, attachments });
-  if (provider === "resend") return sendViaResend({ to, subject, text, html, attachments });
+  const opts = { to, subject, text, html, attachments, replyTo, fromName };
+
+  if (provider === "brevo") return sendViaBrevo(opts);
+  if (provider === "resend") return sendViaResend(opts);
 
   if (provider === "smtp") {
-    await transporter.sendMail({ from: FROM, to, subject, text, html, attachments });
+    const sender = parseFrom(FROM);
+    await transporter.sendMail({
+      from: fromName ? `"${fromName.replace(/"/g, "")}" <${sender.email}>` : FROM,
+      to,
+      subject,
+      text,
+      html,
+      attachments,
+      ...(replyTo ? { replyTo } : {}),
+    });
     return { sent: true };
   }
 
@@ -122,6 +146,22 @@ async function sendMail({ to, subject, text, html, attachments }) {
   if (attachments?.length) console.log(`Attachments: ${attachments.map((a) => a.filename).join(", ")}`);
   console.log("───────────────────────────────────────────────────────────");
   return { sent: false, reason: "EMAIL_NOT_CONFIGURED" };
+}
+
+// Builds the "sent on behalf of" identity for a business.
+//
+// We cannot put the user's own address in From: that requires SPF/DKIM records
+// on their domain, and forging it gets the mail spam-filtered and harms our
+// sending reputation for every other user. So the industry-standard approach is
+// used instead — send from our authenticated address, show the business as the
+// display name, and route replies back to the business.
+function senderIdentity(business) {
+  const name = business?.business_name?.trim();
+  const email = business?.business_email?.trim();
+  return {
+    ...(name ? { fromName: `${name} (via InvoiceForge)` } : {}),
+    ...(email ? { replyTo: email } : {}),
+  };
 }
 
 function money(amountInCents, currency) {
@@ -223,6 +263,9 @@ async function sendInvoiceEmail({ invoice, business, payUrl, pdfBuffer, subject,
     text,
     html,
     attachments: pdfAttachment(invoice, pdfBuffer),
+    // Recipient sees the business as the sender and replies reach them
+    // directly, even though delivery goes through our verified address.
+    ...senderIdentity(business),
   });
 }
 
@@ -257,6 +300,7 @@ async function sendThankYouEmail({ invoice, business, pdfBuffer }) {
     text,
     html,
     attachments: pdfAttachment(invoice, pdfBuffer),
+    ...senderIdentity(business),
   });
 }
 

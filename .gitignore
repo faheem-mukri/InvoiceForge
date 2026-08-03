@@ -19,3 +19,8 @@ build/
 
 # OS files
 .DS_Store
+_commitmsg.txt
+
+# Test artifacts
+coverage/
+*.lcov

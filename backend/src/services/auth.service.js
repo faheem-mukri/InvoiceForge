@@ -1,4 +1,9 @@
 const pool = require("../db");
+const {
+  isValidEmail,
+  normalizeEmail,
+  validatePassword,
+} = require("../utils/validate");
 const crypto = require("crypto");
 const otplib = require("otplib");
 const { OAuth2Client } = require("google-auth-library");
@@ -31,7 +36,19 @@ async function purgeExpiredAccounts() {
   return res.rowCount;
 }
 
-async function registerUser(email, password, firstName, lastName) {
+async function registerUser(rawEmail, password, firstName, lastName) {
+  if (!isValidEmail(rawEmail)) throw new Error("INVALID_EMAIL");
+
+  const passwordProblem = validatePassword(password);
+  if (passwordProblem) {
+    const err = new Error("WEAK_PASSWORD");
+    err.detail = passwordProblem;
+    throw err;
+  }
+
+  // Stored lowercase so duplicate detection and login are case-insensitive.
+  const email = normalizeEmail(rawEmail);
+
   const existing = await pool.query(
     "SELECT id FROM users WHERE email = $1",
     [email]
@@ -82,10 +99,11 @@ async function registerUser(email, password, firstName, lastName) {
   }
 }
 
-async function loginUser(email, password) {
+async function loginUser(rawEmail, password) {
+  // Normalised so casing can never lock a user out of their own account.
   const result = await pool.query(
     "SELECT id, password, two_factor_enabled, deleted_at FROM users WHERE email = $1",
-    [email]
+    [normalizeEmail(rawEmail)]
   );
 
   if (result.rows.length === 0) {
@@ -170,7 +188,8 @@ async function changePassword(userId, currentPassword, newPassword) {
 
 // Creates a single-use reset token (valid 1h) and emails the reset link.
 // Always succeeds from the caller's perspective so we never leak which emails exist.
-async function createPasswordReset(email) {
+async function createPasswordReset(rawEmail) {
+  const email = normalizeEmail(rawEmail);
   const userRes = await pool.query("SELECT id, first_name FROM users WHERE email = $1", [email]);
   if (userRes.rows.length === 0) return;
 

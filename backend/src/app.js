@@ -18,8 +18,9 @@ const publicRoutes = require("./routes/public.routes");
 const app = express();
 
 // Behind a hosting proxy (Render/Railway/Fly/etc.) so req.ip and Secure cookies
-// work correctly.
-if (process.env.NODE_ENV === "production") {
+// work correctly. TRUST_PROXY allows enabling this outside production — useful
+// for staging environments and for exercising per-IP rate limiting in tests.
+if (process.env.NODE_ENV === "production" || process.env.TRUST_PROXY === "true") {
   app.set("trust proxy", 1);
 }
 

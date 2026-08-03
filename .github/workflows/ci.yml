@@ -89,5 +89,40 @@ jobs:
       - name: Verify the app loads (all routes/controllers/services resolve)
         run: node -e "require('./src/app'); console.log('app.js loaded OK')"
 
+      - name: Run test suite with coverage
+        run: npm run test:coverage
+        env:
+          # Dedicated database for the automated tests. The suite TRUNCATEs
+          # tables, so it must never point at anything else.
+          TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/invoiceforge_vitest
+          TEST_DATABASE_SSL: 'false'
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: backend/coverage/
+          retention-days: 7
+
       - name: Smoke test the API against a real database
         run: node scripts/ci-smoke.js
+
+  # Single required status check. Point branch protection (and your host's
+  # "wait for CI" setting) at this job so a deploy cannot proceed unless both
+  # the frontend and backend jobs succeeded.
+  ci-passed:
+    name: CI passed
+    runs-on: ubuntu-latest
+    needs: [frontend, backend]
+    if: always()
+    steps:
+      - name: Fail if any job did not succeed
+        run: |
+          echo "frontend: ${{ needs.frontend.result }}"
+          echo "backend:  ${{ needs.backend.result }}"
+          if [ "${{ needs.frontend.result }}" != "success" ] || [ "${{ needs.backend.result }}" != "success" ]; then
+            echo "::error::CI failed — deployment must not proceed."
+            exit 1
+          fi
+          echo "All checks passed."

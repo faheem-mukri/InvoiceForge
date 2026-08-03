@@ -49,6 +49,18 @@ async function register(req, res) {
         error: { code: "EMAIL_ALREADY_EXISTS", message: "Email already registered" },
       });
     }
+    if (err.message === "INVALID_EMAIL") {
+      return res.status(400).json({
+        success: false,
+        error: { code: "INVALID_EMAIL", message: "Please enter a valid email address." },
+      });
+    }
+    if (err.message === "WEAK_PASSWORD") {
+      return res.status(400).json({
+        success: false,
+        error: { code: "WEAK_PASSWORD", message: err.detail || "Password is too weak." },
+      });
+    }
     console.error(err);
     return res.status(500).json({
       success: false,
